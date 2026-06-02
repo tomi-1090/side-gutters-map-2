@@ -1596,33 +1596,62 @@ class _MapPageState extends State<MapPage> {
       return;
     }
 
-    // 複数選択モード：全レイヤから近くのラインを選択/解除
+    // 複数選択モード：全レイヤからライン・ポイント・ポリゴンを選択/解除
     if (_isMultiSelect) {
-      Gutter? nearest;
-      double  bestDist = double.infinity;
+      String? hitId;
+      String  hitName = '';
+
+      // ポイント（5m以内）
+      double bestDist = double.infinity;
       for (final l in layers) {
         if (!l.visible) continue;
-        final g = _findNearestGutterInLayer(point, l);
-        if (g == null) continue;
-        for (int j = 0; j < g.points.length - 1; j++) {
-          final dist = _distance.distance(
-            point, _projectOnSegment(point, g.points[j], g.points[j + 1]),
-          );
-          if (dist < bestDist) { bestDist = dist; nearest = g; }
+        for (final pt in l.featurePoints) {
+          final d = _distance.distance(point, pt.position);
+          if (d <= 5.0 && d < bestDist) { bestDist = d; hitId = pt.id; hitName = pt.name; }
         }
       }
-      if (nearest != null) {
+
+      // ライン（近傍）
+      if (hitId == null) {
+        Gutter? nearest;
+        bestDist = double.infinity;
+        for (final l in layers) {
+          if (!l.visible) continue;
+          final g = _findNearestGutterInLayer(point, l);
+          if (g == null) continue;
+          for (int j = 0; j < g.points.length - 1; j++) {
+            final dist = _distance.distance(
+              point, _projectOnSegment(point, g.points[j], g.points[j + 1]),
+            );
+            if (dist < bestDist) { bestDist = dist; nearest = g; }
+          }
+        }
+        if (nearest != null && bestDist < 10.0) { hitId = nearest.id; hitName = nearest.name; }
+      }
+
+      // ポリゴン（内部タップ）
+      if (hitId == null) {
+        for (final l in layers) {
+          if (!l.visible) continue;
+          for (final pg in l.featurePolygons) {
+            if (_pointInPolygon(point, pg.points)) { hitId = pg.id; hitName = pg.name; break; }
+          }
+          if (hitId != null) break;
+        }
+      }
+
+      if (hitId != null) {
         setState(() {
-          if (_selectedGutterIds.contains(nearest!.id)) {
-            _selectedGutterIds.remove(nearest.id);
+          if (_selectedGutterIds.contains(hitId)) {
+            _selectedGutterIds.remove(hitId);
           } else {
-            _selectedGutterIds.add(nearest.id);
+            _selectedGutterIds.add(hitId!);
           }
         });
         _showSnackBar(
-          _selectedGutterIds.contains(nearest.id)
-            ? '「${nearest.name.isNotEmpty ? nearest.name : nearest.id}」を選択（計${_selectedGutterIds.length}件）'
-            : '「${nearest.name.isNotEmpty ? nearest.name : nearest.id}」の選択を解除（計${_selectedGutterIds.length}件）',
+          _selectedGutterIds.contains(hitId)
+            ? '「${hitName.isNotEmpty ? hitName : hitId}」を選択（計${_selectedGutterIds.length}件）'
+            : '「${hitName.isNotEmpty ? hitName : hitId}」の選択を解除（計${_selectedGutterIds.length}件）',
         );
       }
       return;
@@ -2786,28 +2815,57 @@ class _MapPageState extends State<MapPage> {
     return result;
   }
 
+  /// 選択中の MapFeaturePoint を収集する
+  List<({MapFeaturePoint point, GutterLayer layer})> _getSelectedPoints() {
+    final result = <({MapFeaturePoint point, GutterLayer layer})>[];
+    for (final l in layers) {
+      for (final pt in l.featurePoints) {
+        if (_selectedGutterIds.contains(pt.id)) result.add((point: pt, layer: l));
+      }
+    }
+    return result;
+  }
+
+  /// 選択中の MapFeaturePolygon を収集する
+  List<({MapFeaturePolygon polygon, GutterLayer layer})> _getSelectedPolygons() {
+    final result = <({MapFeaturePolygon polygon, GutterLayer layer})>[];
+    for (final l in layers) {
+      for (final pg in l.featurePolygons) {
+        if (_selectedGutterIds.contains(pg.id)) result.add((polygon: pg, layer: l));
+      }
+    }
+    return result;
+  }
+
   void _showBulkEditDialog() {
     if (_selectedGutterIds.isEmpty) {
-      _showSnackBar('ラインが選択されていません');
+      _showSnackBar('フィーチャが選択されていません');
       return;
     }
 
     // 編集対象
-    final selected = _getSelectedGutters();
-    final count    = selected.length;
+    final selectedLines    = _getSelectedGutters();
+    final selectedPoints   = _getSelectedPoints();
+    final selectedPolygons = _getSelectedPolygons();
+    final count = selectedLines.length + selectedPoints.length + selectedPolygons.length;
 
-    // 各フィールド：null = 変更なし
-    bool?   bulkShowArrow;
-    bool?   bulkShowHeadMark;
+    // ライン専用フィールド
+    bool?        bulkShowArrow;
+    bool?        bulkShowHeadMark;
     GutterLayer? bulkLayer;
 
-    // 値が全選択で統一されているか確認してプレースホルダ表示用
-    final shapes    = selected.map((e) => e.gutter.shape).toSet();
-    final diams     = selected.map((e) => e.gutter.diameter).toSet();
-    final memos     = selected.map((e) => e.gutter.memo).toSet();
-    final initShape = shapes.length    == 1 ? shapes.first    : null;
-    final initDiam  = diams.length     == 1 ? diams.first     : null;
-    final initMemo  = memos.length     == 1 ? memos.first     : null;
+    final shapes    = selectedLines.map((e) => e.gutter.shape).toSet();
+    final diams     = selectedLines.map((e) => e.gutter.diameter).toSet();
+
+    // 共通メモ（全種別）
+    final allMemos = {
+      ...selectedLines.map((e) => e.gutter.memo),
+      ...selectedPoints.map((e) => e.point.memo),
+      ...selectedPolygons.map((e) => e.polygon.memo),
+    };
+    final initShape = shapes.length == 1 ? shapes.first : null;
+    final initDiam  = diams.length  == 1 ? diams.first  : null;
+    final initMemo  = allMemos.length == 1 ? allMemos.first : null;
 
     final shapeCtrl = TextEditingController(text: initShape ?? '');
     final diamCtrl  = TextEditingController(text: initDiam  ?? '');
@@ -2829,9 +2887,19 @@ class _MapPageState extends State<MapPage> {
                     '入力したフィールドのみ変更されます。\n空欄のフィールドは変更されません。',
                     style: TextStyle(fontSize: 12, color: Colors.grey),
                   ),
+                  const SizedBox(height: 6),
+                  Text(
+                    [
+                      if (selectedLines.isNotEmpty)    'ライン ${selectedLines.length}件',
+                      if (selectedPoints.isNotEmpty)   'ポイント ${selectedPoints.length}件',
+                      if (selectedPolygons.isNotEmpty) 'ポリゴン ${selectedPolygons.length}件',
+                    ].join('　'),
+                    style: const TextStyle(fontSize: 12, color: Colors.blueGrey),
+                  ),
                   const SizedBox(height: 14),
 
-                  // 断面形状
+                  // 断面形状・口径・矢印・上流マーク（ライン選択時のみ表示）
+                  if (selectedLines.isNotEmpty) ...[ 
                   _buildAutocomplete(
                     label  : '断面形状',
                     hint   : initShape != null ? initShape : '（複数の値）',
@@ -2856,19 +2924,6 @@ class _MapPageState extends State<MapPage> {
                     ctrl   : diamCtrl,
                   ),
                   const SizedBox(height: 12),
-
-                  // メモ
-                  TextField(
-                    controller: memoCtrl,
-                    maxLines  : 2,
-                    decoration: InputDecoration(
-                      labelText: 'メモ',
-                      hintText : initMemo != null ? initMemo : '（複数の値）',
-                      border   : const OutlineInputBorder(),
-                      isDense  : true,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
 
                   // 流向矢印
                   const Text('流向矢印', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
@@ -2941,6 +2996,21 @@ class _MapPageState extends State<MapPage> {
                       onChanged: (v) => setS(() => bulkLayer = v),
                     ),
                   ),
+                  const SizedBox(height: 14),
+                  ], // ライン専用ブロックここまで
+
+                  // メモ（全種別共通）
+                  const Text('メモ', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: memoCtrl,
+                    maxLines  : 2,
+                    decoration: InputDecoration(
+                      hintText : initMemo != null ? initMemo : '（複数の値）',
+                      border   : const OutlineInputBorder(),
+                      isDense  : true,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -2958,18 +3028,33 @@ class _MapPageState extends State<MapPage> {
                 final newMemo     = memoCtrl.text.trim().isNotEmpty  ? memoCtrl.text.trim()  : null;
 
                 setState(() {
-                  for (final s in selected) {
+                  // ライン
+                  for (final s in selectedLines) {
                     final g = s.gutter;
                     if (newShape    != null) { g.shape    = newShape;    g.properties['shape']    = newShape; }
                     if (newDiameter != null) { g.diameter = newDiameter; g.properties['diameter'] = newDiameter; }
                     if (newMemo     != null) { g.memo     = newMemo;     g.properties['memo']     = newMemo; }
                     if (bulkShowArrow    != null) g.showArrow    = bulkShowArrow!;
                     if (bulkShowHeadMark != null) g.showHeadMark = bulkShowHeadMark!;
-
-                    // レイヤ移動
                     if (bulkLayer != null && bulkLayer != s.layer) {
                       s.layer.gutters.remove(g);
                       bulkLayer!.gutters.add(g);
+                    }
+                  }
+                  // ポイント
+                  for (final s in selectedPoints) {
+                    if (newMemo != null) { s.point.memo = newMemo; s.point.properties['memo'] = newMemo; }
+                    if (bulkLayer != null && bulkLayer != s.layer) {
+                      s.layer.featurePoints.remove(s.point);
+                      bulkLayer!.featurePoints.add(s.point);
+                    }
+                  }
+                  // ポリゴン
+                  for (final s in selectedPolygons) {
+                    if (newMemo != null) { s.polygon.memo = newMemo; s.polygon.properties['memo'] = newMemo; }
+                    if (bulkLayer != null && bulkLayer != s.layer) {
+                      s.layer.featurePolygons.remove(s.polygon);
+                      bulkLayer!.featurePolygons.add(s.polygon);
                     }
                   }
                   _selectedGutterIds.clear();
