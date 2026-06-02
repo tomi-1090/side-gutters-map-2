@@ -3752,6 +3752,306 @@ class _MapPageState extends State<MapPage> {
   }
 
   // ================================================================
+  // 一括スタイル変更（ポイントレイヤ）
+  // ================================================================
+
+  void _showBulkPointStyleDialog(int layerIndex) {
+    final layer = layers[layerIndex];
+    if (layer.featurePoints.isEmpty) {
+      _showSnackBar('このレイヤにポイントがありません');
+      return;
+    }
+
+    Color?      bulkColor;
+    PointSymbol? bulkSymbol;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setS) => AlertDialog(
+          title: Text('一括スタイル変更\n「${layer.name}」',
+              style: const TextStyle(fontSize: 15)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── 色 ──────────────────────────────────────────
+                const Text('色', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6, runSpacing: 6,
+                  children: [
+                    GestureDetector(
+                      onTap: () => setS(() => bulkColor = null),
+                      child: Container(
+                        width: 40, height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade200, shape: BoxShape.circle,
+                          border: Border.all(
+                            color: bulkColor == null ? Colors.black : Colors.transparent,
+                            width: 3,
+                          ),
+                        ),
+                        child: const Icon(Icons.block, size: 18, color: Colors.grey),
+                      ),
+                    ),
+                    ..._kColorPalette.map((c) => GestureDetector(
+                      onTap: () => setS(() => bulkColor = c),
+                      child: Container(
+                        width: 40, height: 40,
+                        decoration: BoxDecoration(
+                          color: c, shape: BoxShape.circle,
+                          border: Border.all(
+                            color: bulkColor?.toARGB32() == c.toARGB32()
+                                ? Colors.black : Colors.transparent,
+                            width: 3,
+                          ),
+                        ),
+                      ),
+                    )),
+                  ],
+                ),
+                const Divider(height: 24),
+
+                // ── シンボル ──────────────────────────────────
+                const Text('シンボル', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    // 変更なし
+                    GestureDetector(
+                      onTap: () => setS(() => bulkSymbol = null),
+                      child: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: bulkSymbol == null ? Colors.black : Colors.grey.shade300,
+                            width: 2,
+                          ),
+                          borderRadius: BorderRadius.circular(8),
+                          color: bulkSymbol == null ? Colors.grey.shade100 : null,
+                        ),
+                        child: const Text('変更\nなし',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 11, color: Colors.grey)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ...PointSymbol.values.map((sym) {
+                      final label = sym == PointSymbol.circle ? '●'
+                          : sym == PointSymbol.triangle ? '▲' : '■';
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: GestureDetector(
+                          onTap: () => setS(() => bulkSymbol = sym),
+                          child: Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: bulkSymbol == sym
+                                    ? (bulkColor ?? Colors.blue)
+                                    : Colors.grey.shade300,
+                                width: 2,
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(label,
+                                style: TextStyle(
+                                    fontSize: 22,
+                                    color: bulkColor ?? Colors.blue)),
+                          ),
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('キャンセル'),
+            ),
+            FilledButton(
+              onPressed: () {
+                _saveStateForUndo();
+                setState(() {
+                  for (final pt in layers[layerIndex].featurePoints) {
+                    if (bulkColor  != null) pt.color  = bulkColor!;
+                    if (bulkSymbol != null) pt.symbol = bulkSymbol!;
+                  }
+                });
+                _saveToLocalStorage();
+                Navigator.pop(ctx);
+                _showSnackBar(
+                    '${layers[layerIndex].featurePoints.length}件に一括適用しました');
+              },
+              child: const Text('一括適用'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ================================================================
+  // 一括スタイル変更（ポリゴンレイヤ）
+  // ================================================================
+
+  void _showBulkPolygonStyleDialog(int layerIndex) {
+    final layer = layers[layerIndex];
+    if (layer.featurePolygons.isEmpty) {
+      _showSnackBar('このレイヤにポリゴンがありません');
+      return;
+    }
+
+    Color?  bulkFillColor;
+    Color?  bulkStrokeColor;
+    double  fillOpacity  = layer.featurePolygons.first.fillOpacity;
+    double  strokeWidth  = layer.featurePolygons.first.strokeWidth;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setS) => AlertDialog(
+          title: Text('一括スタイル変更\n「${layer.name}」',
+              style: const TextStyle(fontSize: 15)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── 塗りつぶし色 ───────────────────────────────
+                const Text('塗りつぶし色',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6, runSpacing: 6,
+                  children: [
+                    GestureDetector(
+                      onTap: () => setS(() => bulkFillColor = null),
+                      child: Container(
+                        width: 40, height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade200, shape: BoxShape.circle,
+                          border: Border.all(
+                            color: bulkFillColor == null ? Colors.black : Colors.transparent,
+                            width: 3,
+                          ),
+                        ),
+                        child: const Icon(Icons.block, size: 18, color: Colors.grey),
+                      ),
+                    ),
+                    ..._kColorPalette.map((c) => GestureDetector(
+                      onTap: () => setS(() => bulkFillColor = c),
+                      child: Container(
+                        width: 40, height: 40,
+                        decoration: BoxDecoration(
+                          color: c, shape: BoxShape.circle,
+                          border: Border.all(
+                            color: bulkFillColor?.toARGB32() == c.toARGB32()
+                                ? Colors.black : Colors.transparent,
+                            width: 3,
+                          ),
+                        ),
+                      ),
+                    )),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(children: [
+                  const Text('透明度', style: TextStyle(fontSize: 13)),
+                  Expanded(child: Slider(
+                    value: fillOpacity, min: 0.0, max: 1.0, divisions: 10,
+                    label: fillOpacity.toStringAsFixed(1),
+                    onChanged: (v) => setS(() => fillOpacity = v),
+                  )),
+                  Text(fillOpacity.toStringAsFixed(1)),
+                ]),
+                const Divider(height: 20),
+
+                // ── 枠線色 ────────────────────────────────────
+                const Text('枠線色',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6, runSpacing: 6,
+                  children: [
+                    GestureDetector(
+                      onTap: () => setS(() => bulkStrokeColor = null),
+                      child: Container(
+                        width: 40, height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade200, shape: BoxShape.circle,
+                          border: Border.all(
+                            color: bulkStrokeColor == null ? Colors.black : Colors.transparent,
+                            width: 3,
+                          ),
+                        ),
+                        child: const Icon(Icons.block, size: 18, color: Colors.grey),
+                      ),
+                    ),
+                    ..._kColorPalette.map((c) => GestureDetector(
+                      onTap: () => setS(() => bulkStrokeColor = c),
+                      child: Container(
+                        width: 40, height: 40,
+                        decoration: BoxDecoration(
+                          color: c, shape: BoxShape.circle,
+                          border: Border.all(
+                            color: bulkStrokeColor?.toARGB32() == c.toARGB32()
+                                ? Colors.black : Colors.transparent,
+                            width: 3,
+                          ),
+                        ),
+                      ),
+                    )),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(children: [
+                  const Text('枠線幅', style: TextStyle(fontSize: 13)),
+                  Expanded(child: Slider(
+                    value: strokeWidth, min: 0.5, max: 8.0, divisions: 15,
+                    label: strokeWidth.toStringAsFixed(1),
+                    onChanged: (v) => setS(() => strokeWidth = v),
+                  )),
+                  Text(strokeWidth.toStringAsFixed(1)),
+                ]),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('キャンセル'),
+            ),
+            FilledButton(
+              onPressed: () {
+                _saveStateForUndo();
+                setState(() {
+                  for (final pg in layers[layerIndex].featurePolygons) {
+                    if (bulkFillColor   != null) pg.fillColor   = bulkFillColor!;
+                    if (bulkStrokeColor != null) pg.strokeColor = bulkStrokeColor!;
+                    pg.fillOpacity = fillOpacity;
+                    pg.strokeWidth = strokeWidth;
+                  }
+                });
+                _saveToLocalStorage();
+                Navigator.pop(ctx);
+                _showSnackBar(
+                    '${layers[layerIndex].featurePolygons.length}件に一括適用しました');
+              },
+              child: const Text('一括適用'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ================================================================
   // 流向矢印（＞型ポリライン）
   // ================================================================
 
@@ -4343,6 +4643,7 @@ class _MapPageState extends State<MapPage> {
     final symbol     = pt.symbol == PointSymbol.circle  ? '●'
                      : pt.symbol == PointSymbol.triangle ? '▲'
                      : '■';
+    // 変更後
     return Marker(
       point : pt.position,
       width : markerSize,
@@ -4366,6 +4667,38 @@ class _MapPageState extends State<MapPage> {
           }
           _showPointEditSheet(pt, layer);
         },
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Text(symbol,
+              style: TextStyle(
+                fontSize  : fontSize,
+                foreground: Paint()
+                  ..style       = PaintingStyle.stroke
+                  ..strokeWidth = 3
+                  ..color       = Colors.white,
+              ),
+            ),
+            Text(symbol,
+              style: TextStyle(fontSize: fontSize, color: pt.color),
+            ),
+            if (_currentZoom >= 16 && pt.name.isNotEmpty)
+              Positioned(
+                bottom: 0,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.85),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                  child: Text(pt.name,
+                    style: const TextStyle(fontSize: 9, color: Colors.black87),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -5117,6 +5450,7 @@ class _MapPageState extends State<MapPage> {
                         setState(() => selectedLayerIndex = index);
                         Navigator.pop(context);
                       },
+                      // 変更後
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children    : [
@@ -5132,6 +5466,18 @@ class _MapPageState extends State<MapPage> {
                               onPressed: () => _showBulkStyleDialog(index),
                             ),
                           ],
+                          if (layer.layerType == 'point')
+                            IconButton(
+                              icon     : const Icon(Icons.tune, size: 20),
+                              tooltip  : '一括スタイル変更',
+                              onPressed: () => _showBulkPointStyleDialog(index),
+                            ),
+                          if (layer.layerType == 'polygon')
+                            IconButton(
+                              icon     : const Icon(Icons.tune, size: 20),
+                              tooltip  : '一括スタイル変更',
+                              onPressed: () => _showBulkPolygonStyleDialog(index),
+                            ),
                           IconButton(
                             icon     : const Icon(Icons.edit, size: 20),
                             tooltip  : '名称変更',
