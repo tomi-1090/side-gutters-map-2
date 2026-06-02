@@ -4348,42 +4348,24 @@ class _MapPageState extends State<MapPage> {
       width : markerSize,
       height: markerSize,
       child : GestureDetector(
-        onTap: () => _showPointEditSheet(pt, layer),
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            // 影（白）
-            Text(symbol,
-              style: TextStyle(
-                fontSize  : fontSize,
-                foreground: Paint()
-                  ..style       = PaintingStyle.stroke
-                  ..strokeWidth = 3
-                  ..color       = Colors.white,
-              ),
-            ),
-            // 本体
-            Text(symbol,
-              style: TextStyle(fontSize: fontSize, color: pt.color),
-            ),
-            // 名称ラベル（ズーム16以上）
-            if (_currentZoom >= 16 && pt.name.isNotEmpty)
-              Positioned(
-                bottom: 0,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.85),
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                  child: Text(pt.name,
-                    style: const TextStyle(fontSize: 9, color: Colors.black87),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ),
-          ],
-        ),
+        onTap: () {
+          if (_isMultiSelect) {
+            setState(() {
+              if (_selectedGutterIds.contains(pt.id)) {
+                _selectedGutterIds.remove(pt.id);
+              } else {
+                _selectedGutterIds.add(pt.id);
+              }
+            });
+            _showSnackBar(
+              _selectedGutterIds.contains(pt.id)
+                ? '「${pt.name.isNotEmpty ? pt.name : pt.id}」を選択（計${_selectedGutterIds.length}件）'
+                : '「${pt.name.isNotEmpty ? pt.name : pt.id}」の選択を解除（計${_selectedGutterIds.length}件）',
+            );
+            return;
+          }
+          _showPointEditSheet(pt, layer);
+        },
       ),
     );
   }
@@ -4401,6 +4383,21 @@ class _MapPageState extends State<MapPage> {
       height: 32,
       child : GestureDetector(
         onTap: () {
+          if (_isMultiSelect) {
+            setState(() {
+              if (_selectedGutterIds.contains(pg.id)) {
+                _selectedGutterIds.remove(pg.id);
+              } else {
+                _selectedGutterIds.add(pg.id);
+              }
+            });
+            _showSnackBar(
+              _selectedGutterIds.contains(pg.id)
+                ? '「${pg.name.isNotEmpty ? pg.name : pg.id}」を選択（計${_selectedGutterIds.length}件）'
+                : '「${pg.name.isNotEmpty ? pg.name : pg.id}」の選択を解除（計${_selectedGutterIds.length}件）',
+            );
+            return;
+          }
           // 所属レイヤを探して編集シートを開く
           for (final layer in layers) {
             if (layer.featurePolygons.any((p) => p.id == pg.id)) {
@@ -4409,20 +4406,6 @@ class _MapPageState extends State<MapPage> {
             }
           }
         },
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-          decoration: BoxDecoration(
-            color       : Colors.white.withValues(alpha: 0.85),
-            borderRadius: BorderRadius.circular(4),
-            border      : Border.all(color: pg.strokeColor.withValues(alpha: 0.6), width: 1),
-          ),
-          child: Text(
-            pg.name,
-            textAlign: TextAlign.center,
-            overflow : TextOverflow.ellipsis,
-            style    : const TextStyle(fontSize: 10, color: Colors.black87, fontWeight: FontWeight.bold),
-          ),
-        ),
       ),
     );
   }
