@@ -4037,6 +4037,7 @@ class _MapPageState extends State<MapPage> {
       Positioned(
         right : 12,
         bottom: 24,
+        top   : 80,
         child : _buildFabColumn(),
       ),
       // 左下：選択中レイヤバッジ（常時表示）
@@ -4741,7 +4742,9 @@ class _MapPageState extends State<MapPage> {
   // ================================================================
 
   Widget _buildFabColumn() {
-    return Column(
+    return SingleChildScrollView(
+      reverse: true,
+      child: Column(
       mainAxisSize     : MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
@@ -4914,6 +4917,7 @@ class _MapPageState extends State<MapPage> {
           child          : const Icon(Icons.cloud_sync),
         ),
       ],
+      ),
     );
   }
 
