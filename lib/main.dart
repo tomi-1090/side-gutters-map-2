@@ -4456,6 +4456,7 @@ class _MapPageState extends State<MapPage> {
         maxZoom      : 22,
       ),
 
+      // 変更後
       // === ポリゴン描画（塗りつぶし＋枠線） ===
       ...layers.where((l) => l.visible && l.layerType == 'polygon').map(
         (layer) => PolygonLayer(
@@ -4469,6 +4470,23 @@ class _MapPageState extends State<MapPage> {
               )).toList(),
         ),
       ),
+
+      // ポリゴン選択ハイライト
+      if (_isMultiSelect && _selectedGutterIds.isNotEmpty)
+        PolygonLayer(
+          polygons: [
+            for (final layer in layers)
+              if (layer.visible && layer.layerType == 'polygon')
+                for (final pg in layer.featurePolygons)
+                  if (_selectedGutterIds.contains(pg.id))
+                    Polygon(
+                      points           : pg.points,
+                      color            : Colors.indigo.withValues(alpha: 0.4),
+                      borderColor      : Colors.indigo,
+                      borderStrokeWidth: _scaledStrokeWidth(3.5),
+                    ),
+          ],
+        ),
 
       // === ライン描画 ===
       ...layers.where((l) => l.visible && l.layerType == 'line').map(
@@ -4667,9 +4685,21 @@ class _MapPageState extends State<MapPage> {
           }
           _showPointEditSheet(pt, layer);
         },
+        // 変更後
         child: Stack(
           alignment: Alignment.center,
           children: [
+            // 選択ハイライト（インジゴの大きい円）
+            if (_isMultiSelect && _selectedGutterIds.contains(pt.id))
+              Container(
+                width : markerSize,
+                height: markerSize,
+                decoration: BoxDecoration(
+                  color : Colors.indigo.withValues(alpha: 0.35),
+                  shape : BoxShape.circle,
+                  border: Border.all(color: Colors.indigo, width: 2.5),
+                ),
+              ),
             Text(symbol,
               style: TextStyle(
                 fontSize  : fontSize,
@@ -4682,21 +4712,6 @@ class _MapPageState extends State<MapPage> {
             Text(symbol,
               style: TextStyle(fontSize: fontSize, color: pt.color),
             ),
-            if (_currentZoom >= 16 && pt.name.isNotEmpty)
-              Positioned(
-                bottom: 0,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.85),
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                  child: Text(pt.name,
-                    style: const TextStyle(fontSize: 9, color: Colors.black87),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ),
           ],
         ),
       ),
