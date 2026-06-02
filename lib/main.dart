@@ -1680,9 +1680,21 @@ class _MapPageState extends State<MapPage> {
           }
         }
       }
-      // ライン
-      final nearest = _findNearestGutterInLayer(point, layer);
-      if (nearest != null) _showEditForm(nearest);
+      // ライン（全レイヤから最近傍を探す）
+      Gutter? nearestGutter;
+      double  nearestDist = double.infinity;
+      for (final l in layers) {
+        if (!l.visible || l.layerType != 'line') continue;
+        final g = _findNearestGutterInLayer(point, l);
+        if (g == null) continue;
+        for (int j = 0; j < g.points.length - 1; j++) {
+          final dist = _distance.distance(
+            point, _projectOnSegment(point, g.points[j], g.points[j + 1]),
+          );
+          if (dist < nearestDist) { nearestDist = dist; nearestGutter = g; }
+        }
+      }
+      if (nearestGutter != null) _showEditForm(nearestGutter);
     }
   }
 
