@@ -3247,10 +3247,10 @@ class _MapPageState extends State<MapPage> {
               ),
               const SizedBox(height: 8),
               SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(value: 'line',    icon: Icon(Icons.polyline,          size: 16), label: Text('ライン')),
-                  ButtonSegment(value: 'point',   icon: Icon(Icons.circle_outlined,   size: 16), label: Text('ポイント')),
-                  ButtonSegment(value: 'polygon', icon: Icon(Icons.pentagon_outlined, size: 16), label: Text('ポリゴン')),
+                segments: [
+                  const ButtonSegment(value: 'line',    icon: Icon(Icons.polyline,          size: 16), label: Text('ライン')),
+                  ButtonSegment(value: 'point',   icon: SizedBox(width:16,height:16,child:CustomPaint(painter:_PointLayerIconPainter(color:Colors.grey))), label: const Text('ポイント')),
+                  const ButtonSegment(value: 'polygon', icon: Icon(Icons.pentagon_outlined, size: 16), label: Text('ポリゴン')),
                 ],
                 selected: {layerType},
                 onSelectionChanged: (s) => setS(() => layerType = s.first),
@@ -5275,12 +5275,20 @@ class _MapPageState extends State<MapPage> {
 
         // ポイント追加モード
         _roundFab(
-          icon     : Icons.circle_outlined,
-          tooltip  : _isAddingPoint ? 'ポイント追加終了' : 'ポイント追加',
-          onTap    : _toggleAddPointMode,
-          color    : _isAddingPoint ? Colors.deepOrange : Colors.white,
-          iconColor: _isAddingPoint ? Colors.white : Colors.deepOrange,
-          mini     : true,
+          icon        : Icons.circle_outlined,
+          tooltip     : _isAddingPoint ? 'ポイント追加終了' : 'ポイント追加',
+          onTap       : _toggleAddPointMode,
+          color       : _isAddingPoint ? Colors.deepOrange : Colors.white,
+          iconColor   : _isAddingPoint ? Colors.white : Colors.deepOrange,
+          mini        : true,
+          customChild : SizedBox(
+            width : 20, height: 20,
+            child : CustomPaint(
+              painter: _PointLayerIconPainter(
+                color: _isAddingPoint ? Colors.white : Colors.deepOrange,
+              ),
+            ),
+          ),
         ),
         const SizedBox(height: 6),
 
@@ -5371,7 +5379,8 @@ class _MapPageState extends State<MapPage> {
     required VoidCallback onTap,
     required Color    color,
     required Color    iconColor,
-    bool mini = false,
+    bool    mini        = false,
+    Widget? customChild,
   }) =>
       FloatingActionButton(
         heroTag        : tooltip,
@@ -5381,7 +5390,7 @@ class _MapPageState extends State<MapPage> {
         tooltip        : tooltip,
         elevation      : 2,
         onPressed      : onTap,
-        child          : Icon(icon, size: mini ? 20 : 24),
+        child          : customChild ?? Icon(icon, size: mini ? 20 : 24),
       );
 
   // ================================================================
@@ -5464,13 +5473,19 @@ class _MapPageState extends State<MapPage> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               // レイヤ種別アイコン
-                              Icon(
-                                layer.layerType == 'point'   ? Icons.circle_outlined
-                                  : layer.layerType == 'polygon' ? Icons.pentagon_outlined
-                                  : Icons.polyline,
-                                size: 13,
-                                color: Colors.grey.shade600,
-                              ),
+                              if (layer.layerType == 'point')
+                                SizedBox(
+                                  width: 13, height: 13,
+                                  child: CustomPaint(
+                                    painter: _PointLayerIconPainter(color: Colors.grey.shade600),
+                                  ),
+                                )
+                              else
+                                Icon(
+                                  layer.layerType == 'polygon' ? Icons.pentagon_outlined : Icons.polyline,
+                                  size: 13,
+                                  color: Colors.grey.shade600,
+                                ),
                               const SizedBox(width: 4),
                               Text(countLabel, style: const TextStyle(fontSize: 12)),
                               if (bulkColor != null) ...[
@@ -5664,4 +5679,43 @@ class _TrianglePainter extends CustomPainter {
   @override
   bool shouldRepaint(_TrianglePainter old) =>
       old.color != color || old.borderColor != borderColor || old.borderWidth != borderWidth;
+}
+// ================================================================
+// ポイントレイヤアイコン（○上中央・△左下・▢右下の三角配置）
+// ================================================================
+class _PointLayerIconPainter extends CustomPainter {
+  final Color color;
+  const _PointLayerIconPainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    final paint = Paint()..color = color..style = PaintingStyle.fill;
+
+    // ○ 上中央
+    final r = w * 0.22;
+    canvas.drawCircle(Offset(w * 0.5, h * 0.28), r, paint);
+
+    // △ 左下
+    final tp = ui.Path()
+      ..moveTo(w * 0.22, h * 0.58)
+      ..lineTo(w * 0.44, h * 0.96)
+      ..lineTo(w * 0.00, h * 0.96)
+      ..close();
+    canvas.drawPath(tp, paint);
+
+    // ▢ 右下
+    final sq = w * 0.38;
+    final rx = w * 0.56;
+    final ry = h * 0.58;
+    final rr = w * 0.06;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromLTWH(rx, ry, sq, sq), Radius.circular(rr)),
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_PointLayerIconPainter old) => old.color != color;
 }
