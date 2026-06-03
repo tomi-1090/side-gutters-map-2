@@ -8,6 +8,7 @@ import 'package:file_picker/file_picker.dart';
 
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:web/web.dart' as web;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -1680,21 +1681,9 @@ class _MapPageState extends State<MapPage> {
           }
         }
       }
-      // ライン（全レイヤから最近傍を探す）
-      Gutter? nearestGutter;
-      double  nearestDist = double.infinity;
-      for (final l in layers) {
-        if (!l.visible || l.layerType != 'line') continue;
-        final g = _findNearestGutterInLayer(point, l);
-        if (g == null) continue;
-        for (int j = 0; j < g.points.length - 1; j++) {
-          final dist = _distance.distance(
-            point, _projectOnSegment(point, g.points[j], g.points[j + 1]),
-          );
-          if (dist < nearestDist) { nearestDist = dist; nearestGutter = g; }
-        }
-      }
-      if (nearestGutter != null) _showEditForm(nearestGutter);
+      // ライン
+      final nearest = _findNearestGutterInLayer(point, layer);
+      if (nearest != null) _showEditForm(nearest);
     }
   }
 
@@ -2038,7 +2027,6 @@ class _MapPageState extends State<MapPage> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: PointSymbol.values.map((sym) {
-                      final label = sym == PointSymbol.circle ? '●' : sym == PointSymbol.triangle ? '▲' : '■';
                       return GestureDetector(
                         onTap: () => setS(() => selSymbol = sym),
                         child: Container(
@@ -2050,7 +2038,7 @@ class _MapPageState extends State<MapPage> {
                             ),
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          child: Text(label, style: TextStyle(fontSize: 22, color: selColor)),
+                          child: _buildPointSymbolWidget(sym, selColor, 26),
                         ),
                       );
                     }).toList(),
@@ -2179,7 +2167,6 @@ class _MapPageState extends State<MapPage> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: PointSymbol.values.map((sym) {
-                    final label = sym == PointSymbol.circle ? '●' : sym == PointSymbol.triangle ? '▲' : '■';
                     return GestureDetector(
                       onTap: () => setS(() => pt.symbol = sym),
                       child: Container(
@@ -2190,7 +2177,7 @@ class _MapPageState extends State<MapPage> {
                           ),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Text(label, style: TextStyle(fontSize: 22, color: pt.color)),
+                        child: _buildPointSymbolWidget(sym, pt.color, 26),
                       ),
                     );
                   }).toList(),
@@ -2914,7 +2901,7 @@ class _MapPageState extends State<MapPage> {
                   if (selectedLines.isNotEmpty) ...[ 
                   _buildAutocomplete(
                     label  : '断面形状',
-                    hint   : initShape != null ? initShape : '（複数の値）',
+                    hint   : initShape ?? '（複数の値）',
                     initial: initShape ?? '',
                     options: _kShapeOptions,
                     display: (o) => _kShapeLabels[o] ?? o,
@@ -2928,7 +2915,7 @@ class _MapPageState extends State<MapPage> {
                   // 口径
                   _buildAutocomplete(
                     label  : '口径',
-                    hint   : initDiam != null ? initDiam : '（複数の値）',
+                    hint   : initDiam ?? '（複数の値）',
                     initial: initDiam ?? '',
                     options: _kDiameterOptions,
                     display: (o) => o,
@@ -3018,7 +3005,7 @@ class _MapPageState extends State<MapPage> {
                     controller: memoCtrl,
                     maxLines  : 2,
                     decoration: InputDecoration(
-                      hintText : initMemo != null ? initMemo : '（複数の値）',
+                      hintText : initMemo ?? '（複数の値）',
                       border   : const OutlineInputBorder(),
                       isDense  : true,
                     ),
@@ -3851,8 +3838,6 @@ class _MapPageState extends State<MapPage> {
                     ),
                     const SizedBox(width: 8),
                     ...PointSymbol.values.map((sym) {
-                      final label = sym == PointSymbol.circle ? '●'
-                          : sym == PointSymbol.triangle ? '▲' : '■';
                       return Padding(
                         padding: const EdgeInsets.only(right: 8),
                         child: GestureDetector(
@@ -3868,10 +3853,7 @@ class _MapPageState extends State<MapPage> {
                               ),
                               borderRadius: BorderRadius.circular(8),
                             ),
-                            child: Text(label,
-                                style: TextStyle(
-                                    fontSize: 22,
-                                    color: bulkColor ?? Colors.blue)),
+                            child: _buildPointSymbolWidget(sym, bulkColor ?? Colors.blue, 26),
                           ),
                         ),
                       );
@@ -4670,10 +4652,7 @@ class _MapPageState extends State<MapPage> {
   Marker _buildPointMarker(MapFeaturePoint pt, GutterLayer layer) {
     final fontSize   = _scaledStampFontSize();
     final markerSize = fontSize + 16;
-    final symbol     = pt.symbol == PointSymbol.circle  ? '●'
-                     : pt.symbol == PointSymbol.triangle ? '▲'
-                     : '■';
-    // 変更後
+    final dotSize    = fontSize * 0.95;
     return Marker(
       point : pt.position,
       width : markerSize,
@@ -4697,11 +4676,10 @@ class _MapPageState extends State<MapPage> {
           }
           _showPointEditSheet(pt, layer);
         },
-        // 変更後
         child: Stack(
           alignment: Alignment.center,
           children: [
-            // 選択ハイライト（インジゴの大きい円）
+            // 選択ハイライト
             if (_isMultiSelect && _selectedGutterIds.contains(pt.id))
               Container(
                 width : markerSize,
@@ -4712,22 +4690,60 @@ class _MapPageState extends State<MapPage> {
                   border: Border.all(color: Colors.indigo, width: 2.5),
                 ),
               ),
-            Text(symbol,
-              style: TextStyle(
-                fontSize  : fontSize,
-                foreground: Paint()
-                  ..style       = PaintingStyle.stroke
-                  ..strokeWidth = 3
-                  ..color       = Colors.white,
-              ),
-            ),
-            Text(symbol,
-              style: TextStyle(fontSize: fontSize, color: pt.color),
-            ),
+            _buildPointSymbolWidget(pt.symbol, pt.color, dotSize),
           ],
         ),
       ),
     );
+  }
+
+  /// シンボルをWidgetで描画（文字ではなくContainer/CustomPaintで綺麗に）
+  Widget _buildPointSymbolWidget(PointSymbol symbol, Color color, double size) {
+    final borderWidth = (size * 0.18).clamp(1.5, 3.5);
+    switch (symbol) {
+      case PointSymbol.circle:
+        return Container(
+          width : size,
+          height: size,
+          decoration: BoxDecoration(
+            color : color,
+            shape : BoxShape.circle,
+            border: Border.all(color: Colors.white, width: borderWidth),
+            boxShadow: [
+              BoxShadow(
+                color  : Colors.black.withValues(alpha: 0.25),
+                blurRadius : 2,
+                spreadRadius: 0.5,
+              ),
+            ],
+          ),
+        );
+      case PointSymbol.triangle:
+        return SizedBox(
+          width : size,
+          height: size,
+          child : CustomPaint(
+            painter: _TrianglePainter(color: color, borderColor: Colors.white, borderWidth: borderWidth),
+          ),
+        );
+      case PointSymbol.square:
+        return Container(
+          width : size,
+          height: size,
+          decoration: BoxDecoration(
+            color        : color,
+            borderRadius : BorderRadius.circular(size * 0.15),
+            border       : Border.all(color: Colors.white, width: borderWidth),
+            boxShadow: [
+              BoxShadow(
+                color  : Colors.black.withValues(alpha: 0.25),
+                blurRadius : 2,
+                spreadRadius: 0.5,
+              ),
+            ],
+          ),
+        );
+    }
   }
 
   // ================================================================
@@ -5605,4 +5621,47 @@ class _MapPageState extends State<MapPage> {
       ],
     ),
   );
+}
+
+// ================================================================
+// 三角形シンボル描画
+// ================================================================
+class _TrianglePainter extends CustomPainter {
+  final Color  color;
+  final Color  borderColor;
+  final double borderWidth;
+  const _TrianglePainter({
+    required this.color,
+    required this.borderColor,
+    required this.borderWidth,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    final path = ui.Path()
+      ..moveTo(w / 2, 0)
+      ..lineTo(w,     h)
+      ..lineTo(0,     h)
+      ..close();
+
+    canvas.drawPath(path, Paint()
+      ..color = borderColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = borderWidth * 2
+      ..strokeJoin  = StrokeJoin.round);
+    canvas.drawPath(path, Paint()
+      ..color = color
+      ..style = PaintingStyle.fill);
+    canvas.drawPath(path, Paint()
+      ..color = borderColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = borderWidth
+      ..strokeJoin  = StrokeJoin.round);
+  }
+
+  @override
+  bool shouldRepaint(_TrianglePainter old) =>
+      old.color != color || old.borderColor != borderColor || old.borderWidth != borderWidth;
 }
