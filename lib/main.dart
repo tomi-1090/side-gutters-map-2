@@ -3249,7 +3249,7 @@ class _MapPageState extends State<MapPage> {
               SegmentedButton<String>(
                 segments: const [
                   ButtonSegment(value: 'line',    icon: Icon(Icons.polyline,          size: 16), label: Text('ライン')),
-                  ButtonSegment(value: 'point',   icon: Icon(Icons.place,             size: 16), label: Text('ポイント')),
+                  ButtonSegment(value: 'point',   icon: Icon(Icons.circle_outlined,   size: 16), label: Text('ポイント')),
                   ButtonSegment(value: 'polygon', icon: Icon(Icons.pentagon_outlined, size: 16), label: Text('ポリゴン')),
                 ],
                 selected: {layerType},
@@ -5275,7 +5275,7 @@ class _MapPageState extends State<MapPage> {
 
         // ポイント追加モード
         _roundFab(
-          icon     : Icons.place,
+          icon     : Icons.circle_outlined,
           tooltip  : _isAddingPoint ? 'ポイント追加終了' : 'ポイント追加',
           onTap    : _toggleAddPointMode,
           color    : _isAddingPoint ? Colors.deepOrange : Colors.white,
@@ -5465,7 +5465,7 @@ class _MapPageState extends State<MapPage> {
                             children: [
                               // レイヤ種別アイコン
                               Icon(
-                                layer.layerType == 'point'   ? Icons.place
+                                layer.layerType == 'point'   ? Icons.circle_outlined
                                   : layer.layerType == 'polygon' ? Icons.pentagon_outlined
                                   : Icons.polyline,
                                 size: 13,
