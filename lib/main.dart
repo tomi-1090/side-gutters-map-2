@@ -3347,6 +3347,109 @@ class _MapPageState extends State<MapPage> {
       }));
   }
 
+  /// ポイントレイヤ用：カテゴリ色分けに使えるプロパティキー一覧
+  List<String> _getAllPointPropertyKeys(GutterLayer layer) {
+    const excludeKeys = {'id', 'type', 'color', 'symbol', 'layerId', 'layerVisible'};
+    final keys = <String>{
+      'name', 'memo',
+      for (final pt in layer.featurePoints) ...pt.properties.keys,
+    }.where((k) => !excludeKeys.contains(k)).toList()
+      ..sort((a, b) {
+        final aHas = _kPropKeyLabels.containsKey(a) ? 0 : 1;
+        final bHas = _kPropKeyLabels.containsKey(b) ? 0 : 1;
+        if (aHas != bHas) return aHas - bHas;
+        return a.compareTo(b);
+      });
+    return keys;
+  }
+
+  /// ポリゴンレイヤ用：カテゴリ色分けに使えるプロパティキー一覧
+  List<String> _getAllPolygonPropertyKeys(GutterLayer layer) {
+    const excludeKeys = {
+      'id', 'fillColor', 'fillOpacity', 'strokeColor', 'strokeWidth',
+      'layerId', 'layerVisible',
+    };
+    final keys = <String>{
+      'name', 'memo',
+      for (final pg in layer.featurePolygons) ...pg.properties.keys,
+    }.where((k) => !excludeKeys.contains(k)).toList()
+      ..sort((a, b) {
+        final aHas = _kPropKeyLabels.containsKey(a) ? 0 : 1;
+        final bHas = _kPropKeyLabels.containsKey(b) ? 0 : 1;
+        if (aHas != bHas) return aHas - bHas;
+        return a.compareTo(b);
+      });
+    return keys;
+  }
+
+  /// ポイントフィーチャの表示色をカテゴリ設定に従って返す
+  Color _getPointColor(MapFeaturePoint pt, GutterLayer layer) {
+    if (layer.categoryKey != null && layer.categoryColors.isNotEmpty) {
+      final raw   = pt.properties[layer.categoryKey!] ?? _pointBuiltinValue(pt, layer.categoryKey!);
+      final value = _normalizeShapeValue(raw?.toString().trim() ?? '');
+      return layer.categoryColors[value] ??
+             layer.categoryColors['未分類'] ??
+             Colors.grey;
+    }
+    return pt.color;
+  }
+
+  /// ポリゴンフィーチャの塗りつぶし色をカテゴリ設定に従って返す
+  Color _getPolygonFillColor(MapFeaturePolygon pg, GutterLayer layer) {
+    if (layer.categoryKey != null && layer.categoryColors.isNotEmpty) {
+      final raw   = pg.properties[layer.categoryKey!] ?? _polygonBuiltinValue(pg, layer.categoryKey!);
+      final value = _normalizeShapeValue(raw?.toString().trim() ?? '');
+      return layer.categoryColors[value] ??
+             layer.categoryColors['未分類'] ??
+             Colors.grey;
+    }
+    return pg.fillColor;
+  }
+
+  /// ポイントの組み込みフィールド（name/memo）を categoryKey で参照できるよう返す
+  String? _pointBuiltinValue(MapFeaturePoint pt, String key) {
+    if (key == 'name') return pt.name;
+    if (key == 'memo') return pt.memo;
+    return null;
+  }
+
+  /// ポリゴンの組み込みフィールド（name/memo）を categoryKey で参照できるよう返す
+  String? _polygonBuiltinValue(MapFeaturePolygon pg, String key) {
+    if (key == 'name') return pg.name;
+    if (key == 'memo') return pg.memo;
+    return null;
+  }
+
+  /// ポイントレイヤ用：[key] 属性のユニーク値一覧
+  List<String> _getUniquePointValues(GutterLayer layer, String? key) {
+    if (key == null) return [];
+    final fromData = <String>{
+      for (final pt in layer.featurePoints)
+        _normalizeShapeValue(
+          (pt.properties[key] ?? _pointBuiltinValue(pt, key))?.toString().trim() ?? '',
+        ),
+    };
+    return fromData.toList()..sort();
+  }
+
+  /// ポリゴンレイヤ用：[key] 属性のユニーク値一覧
+  List<String> _getUniquePolygonValues(GutterLayer layer, String? key) {
+    if (key == null) return [];
+    final fromData = <String>{
+      for (final pg in layer.featurePolygons)
+        _normalizeShapeValue(
+          (pg.properties[key] ?? _polygonBuiltinValue(pg, key))?.toString().trim() ?? '',
+        ),
+    };
+    return fromData.toList()..sort();
+  }
+
+  /// ポイント/ポリゴン用：カテゴリ→初期色マッピングを生成
+  Map<String, Color> _generateCategoryColorsForValues(List<String> values) {
+    final palette = [...Colors.primaries, Colors.brown, Colors.grey, Colors.pink, Colors.cyan];
+    return {for (int i = 0; i < values.length; i++) values[i]: palette[i % palette.length]};
+  }
+
   // ----------------------------------------------------------------
   // カテゴリ色分けユーティリティ
   // ----------------------------------------------------------------
@@ -3512,6 +3615,234 @@ class _MapPageState extends State<MapPage> {
               FilledButton(
                 onPressed: () {
                   // '---' や空キーを '未分類' に正規化してから保存
+                  final normalized = <String, Color>{};
+                  tempColors.forEach((k, v) {
+                    final nk = (k.trim().isEmpty || k == '---') ? '未分類' : k;
+                    normalized[nk] = v;
+                  });
+                  setState(() {
+                    layers[layerIndex].categoryKey    = selectedKey;
+                    layers[layerIndex].categoryColors = normalized;
+                  });
+                  _saveToLocalStorage();
+                  Navigator.pop(context);
+                  _showSnackBar('色分け設定を適用しました');
+                },
+                child: const Text('適用'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // ================================================================
+  // カテゴリ色分け（ポイントレイヤ）
+  // ================================================================
+
+  void _showCategoryStylingPointDialog(int layerIndex) {
+    final layer              = layers[layerIndex];
+    String?            selectedKey = layer.categoryKey;
+    Map<String, Color> tempColors  = Map.from(layer.categoryColors);
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setS) {
+          final uniqueValues = _getUniquePointValues(layer, selectedKey);
+          return AlertDialog(
+            title  : const Text('カテゴリによる色分け（ポイント）'),
+            content: SizedBox(
+              width : double.maxFinite,
+              height: 480,
+              child : Column(
+                children: [
+                  DropdownButton<String?>(
+                    isExpanded: true,
+                    hint      : const Text('分類する属性を選択'),
+                    value     : selectedKey,
+                    items     : [
+                      const DropdownMenuItem(value: null, child: Text('無効（個別色を使う）')),
+                      ..._getAllPointPropertyKeys(layer).map((k) {
+                        final label = _kPropKeyLabels[k] ?? k;
+                        return DropdownMenuItem(value: k, child: Text(label));
+                      }),
+                    ],
+                    onChanged: (val) => setS(() {
+                      selectedKey = val;
+                      if (val != null) {
+                        tempColors = _generateCategoryColorsForValues(
+                          _getUniquePointValues(layer, val),
+                        );
+                      }
+                    }),
+                  ),
+                  const Divider(),
+                  if (selectedKey != null)
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount  : uniqueValues.length,
+                        itemBuilder: (context, i) {
+                          final value = uniqueValues[i];
+                          return ListTile(
+                            title  : Text(value.isEmpty ? '（空）' : value),
+                            trailing: GestureDetector(
+                              onTap: () async {
+                                final picked = await showDialog<Color>(
+                                  context: context,
+                                  builder: (dlg) => AlertDialog(
+                                    title  : Text('色を選択: $value'),
+                                    content: Wrap(
+                                      children: Colors.primaries.map((c) => GestureDetector(
+                                        onTap : () => Navigator.pop(dlg, c),
+                                        child : Container(
+                                          width : 48, height: 48, color: c,
+                                          margin: const EdgeInsets.all(4),
+                                        ),
+                                      )).toList(),
+                                    ),
+                                  ),
+                                );
+                                if (picked != null) setS(() => tempColors[value] = picked);
+                              },
+                              child: Container(
+                                width : 36, height: 36,
+                                decoration: BoxDecoration(
+                                  color : tempColors[value] ?? Colors.grey,
+                                  shape : BoxShape.circle,
+                                  border: Border.all(color: Colors.black45),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child    : const Text('キャンセル'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final normalized = <String, Color>{};
+                  tempColors.forEach((k, v) {
+                    final nk = (k.trim().isEmpty || k == '---') ? '未分類' : k;
+                    normalized[nk] = v;
+                  });
+                  setState(() {
+                    layers[layerIndex].categoryKey    = selectedKey;
+                    layers[layerIndex].categoryColors = normalized;
+                  });
+                  _saveToLocalStorage();
+                  Navigator.pop(context);
+                  _showSnackBar('色分け設定を適用しました');
+                },
+                child: const Text('適用'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // ================================================================
+  // カテゴリ色分け（ポリゴンレイヤ）
+  // ================================================================
+
+  void _showCategoryStylingPolygonDialog(int layerIndex) {
+    final layer              = layers[layerIndex];
+    String?            selectedKey = layer.categoryKey;
+    Map<String, Color> tempColors  = Map.from(layer.categoryColors);
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setS) {
+          final uniqueValues = _getUniquePolygonValues(layer, selectedKey);
+          return AlertDialog(
+            title  : const Text('カテゴリによる色分け（ポリゴン）'),
+            content: SizedBox(
+              width : double.maxFinite,
+              height: 480,
+              child : Column(
+                children: [
+                  DropdownButton<String?>(
+                    isExpanded: true,
+                    hint      : const Text('分類する属性を選択'),
+                    value     : selectedKey,
+                    items     : [
+                      const DropdownMenuItem(value: null, child: Text('無効（個別色を使う）')),
+                      ..._getAllPolygonPropertyKeys(layer).map((k) {
+                        final label = _kPropKeyLabels[k] ?? k;
+                        return DropdownMenuItem(value: k, child: Text(label));
+                      }),
+                    ],
+                    onChanged: (val) => setS(() {
+                      selectedKey = val;
+                      if (val != null) {
+                        tempColors = _generateCategoryColorsForValues(
+                          _getUniquePolygonValues(layer, val),
+                        );
+                      }
+                    }),
+                  ),
+                  const Divider(),
+                  if (selectedKey != null)
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount  : uniqueValues.length,
+                        itemBuilder: (context, i) {
+                          final value = uniqueValues[i];
+                          return ListTile(
+                            title  : Text(value.isEmpty ? '（空）' : value),
+                            trailing: GestureDetector(
+                              onTap: () async {
+                                final picked = await showDialog<Color>(
+                                  context: context,
+                                  builder: (dlg) => AlertDialog(
+                                    title  : Text('色を選択: $value'),
+                                    content: Wrap(
+                                      children: Colors.primaries.map((c) => GestureDetector(
+                                        onTap : () => Navigator.pop(dlg, c),
+                                        child : Container(
+                                          width : 48, height: 48, color: c,
+                                          margin: const EdgeInsets.all(4),
+                                        ),
+                                      )).toList(),
+                                    ),
+                                  ),
+                                );
+                                if (picked != null) setS(() => tempColors[value] = picked);
+                              },
+                              child: Container(
+                                width : 36, height: 36,
+                                decoration: BoxDecoration(
+                                  color : tempColors[value] ?? Colors.grey,
+                                  shape : BoxShape.circle,
+                                  border: Border.all(color: Colors.black45),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child    : const Text('キャンセル'),
+              ),
+              FilledButton(
+                onPressed: () {
                   final normalized = <String, Color>{};
                   tempColors.forEach((k, v) {
                     final nk = (k.trim().isEmpty || k == '---') ? '未分類' : k;
@@ -3777,6 +4108,21 @@ class _MapPageState extends State<MapPage> {
               children: [
                 // ── 色 ──────────────────────────────────────────
                 const Text('色', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                const SizedBox(height: 4),
+                if (layer.categoryKey != null)
+                  Container(
+                    padding   : const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color       : Colors.amber.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border      : Border.all(color: Colors.amber.shade300),
+                    ),
+                    child: const Text(
+                      'カテゴリ色分けが有効のため、個別色は表示に影響しません。\n'
+                      '色変更を反映するにはカテゴリ色分けを無効にしてください。',
+                      style: TextStyle(fontSize: 11, color: Colors.brown),
+                    ),
+                  ),
                 const SizedBox(height: 6),
                 Wrap(
                   spacing: 6, runSpacing: 6,
@@ -3876,6 +4222,10 @@ class _MapPageState extends State<MapPage> {
                     if (bulkColor  != null) pt.color  = bulkColor!;
                     if (bulkSymbol != null) pt.symbol = bulkSymbol!;
                   }
+                  if (bulkColor != null) {
+                    layers[layerIndex].categoryKey    = null;
+                    layers[layerIndex].categoryColors = {};
+                  }
                 });
                 _saveToLocalStorage();
                 Navigator.pop(ctx);
@@ -3920,6 +4270,21 @@ class _MapPageState extends State<MapPage> {
                 // ── 塗りつぶし色 ───────────────────────────────
                 const Text('塗りつぶし色',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                const SizedBox(height: 4),
+                if (layer.categoryKey != null)
+                  Container(
+                    padding   : const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color       : Colors.amber.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border      : Border.all(color: Colors.amber.shade300),
+                    ),
+                    child: const Text(
+                      'カテゴリ色分けが有効のため、塗りつぶし色は表示に影響しません。\n'
+                      '色変更を反映するにはカテゴリ色分けを無効にしてください。',
+                      style: TextStyle(fontSize: 11, color: Colors.brown),
+                    ),
+                  ),
                 const SizedBox(height: 6),
                 Wrap(
                   spacing: 6, runSpacing: 6,
@@ -4030,6 +4395,10 @@ class _MapPageState extends State<MapPage> {
                     if (bulkStrokeColor != null) pg.strokeColor = bulkStrokeColor!;
                     pg.fillOpacity = fillOpacity;
                     pg.strokeWidth = strokeWidth;
+                  }
+                  if (bulkFillColor != null) {
+                    layers[layerIndex].categoryKey    = null;
+                    layers[layerIndex].categoryColors = {};
                   }
                 });
                 _saveToLocalStorage();
@@ -4458,7 +4827,7 @@ class _MapPageState extends State<MapPage> {
               .where((pg) => _isPolygonVisible(pg))
               .map((pg) => Polygon(
                 points         : pg.points,
-                color          : pg.fillColor.withValues(alpha: pg.fillOpacity),
+                color          : _getPolygonFillColor(pg, layer).withValues(alpha: pg.fillOpacity),
                 borderColor    : pg.strokeColor,
                 borderStrokeWidth: _scaledStrokeWidth(pg.strokeWidth),
               )).toList(),
@@ -4690,7 +5059,7 @@ class _MapPageState extends State<MapPage> {
                   border: Border.all(color: Colors.indigo, width: 2.5),
                 ),
               ),
-            _buildPointSymbolWidget(pt.symbol, pt.color, dotSize),
+            _buildPointSymbolWidget(pt.symbol, _getPointColor(pt, layer), dotSize),
           ],
         ),
       ),
@@ -5524,18 +5893,30 @@ class _MapPageState extends State<MapPage> {
                               onPressed: () => _showBulkStyleDialog(index),
                             ),
                           ],
-                          if (layer.layerType == 'point')
+                          if (layer.layerType == 'point') ...[
+                            IconButton(
+                              icon     : const Icon(Icons.palette, size: 20),
+                              tooltip  : 'カテゴリ色分け',
+                              onPressed: () => _showCategoryStylingPointDialog(index),
+                            ),
                             IconButton(
                               icon     : const Icon(Icons.tune, size: 20),
                               tooltip  : '一括スタイル変更',
                               onPressed: () => _showBulkPointStyleDialog(index),
                             ),
-                          if (layer.layerType == 'polygon')
+                          ],
+                          if (layer.layerType == 'polygon') ...[
+                            IconButton(
+                              icon     : const Icon(Icons.palette, size: 20),
+                              tooltip  : 'カテゴリ色分け',
+                              onPressed: () => _showCategoryStylingPolygonDialog(index),
+                            ),
                             IconButton(
                               icon     : const Icon(Icons.tune, size: 20),
                               tooltip  : '一括スタイル変更',
                               onPressed: () => _showBulkPolygonStyleDialog(index),
                             ),
+                          ],
                           IconButton(
                             icon     : const Icon(Icons.edit, size: 20),
                             tooltip  : '名称変更',
